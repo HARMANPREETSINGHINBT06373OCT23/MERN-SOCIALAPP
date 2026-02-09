@@ -10,26 +10,25 @@ import {
   getFollowers,
   getFollowing,
   updateProfile,
+  updatePrivacy, // ✅ Added missing import
+  updateSettings, // ✅ Added new settings import
   deleteAccount,
   blockUser,
   unblockUser,
-  searchUsers
+  searchUsers,
+  getSuggestions
 } from "../controllers/user.controller.js";
-
 
 import { protect } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
-/* ======================================================
-   ⚠️ VERY IMPORTANT ORDER — DO NOT CHANGE
-   ====================================================== */
-
 /* ===============================
-   SEARCH (MOST SPECIFIC)
+   SEARCH & SUGGESTIONS (SPECIFIC)
    =============================== */
 router.get("/search/users", protect, searchUsers);
+router.get("/suggestions", protect, getSuggestions);
 
 /* ===============================
    POSTS
@@ -59,15 +58,13 @@ router.post("/unblock/:id", protect, unblockUser);
    PROFILE MANAGEMENT (SELF)
    =============================== */
 router.patch("/me", protect, upload.single("avatar"), updateProfile);
+router.patch("/privacy", protect, updatePrivacy); // ✅ Added privacy route
+router.patch("/settings", protect, updateSettings); // ✅ Added interaction settings route
 router.delete("/delete", protect, deleteAccount);
 
 /* ===============================
    PROFILE (LAST — LEAST SPECIFIC)
    =============================== */
-/*
-  ⚠️ This MUST be last, otherwise it will
-  capture /search, /followers, /following, etc.
-*/
 router.get("/:id", protect, getProfile);
 
 export default router;

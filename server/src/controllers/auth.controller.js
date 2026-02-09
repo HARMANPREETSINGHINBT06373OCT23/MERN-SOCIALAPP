@@ -220,3 +220,31 @@ export const logout = async (req, res) => {
     message: "Logged out successfully"
   });
 };
+export const deleteAccountWithPassword = async (req, res) => {
+  try {
+    const { identifier, password } = req.body; // identifier = email or username
+
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 1. Check if the provided email/username matches the logged-in user
+    const normalizedInput = identifier.trim().toLowerCase();
+    if (user.email !== normalizedInput && user.username !== normalizedInput) {
+      return res.status(401).json({ message: "Identifier does not match this account" });
+    }
+
+    // 2. Verify Password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Incorrect password" });
+    }
+
+    // 3. Execution
+    await Post.deleteMany({ user: user._id });
+    await user.deleteOne();
+
+    res.json({ message: "Account deleted" });
+  } catch (e) {
+    res.status(500).json({ message: "Server error" });
+  }
+};

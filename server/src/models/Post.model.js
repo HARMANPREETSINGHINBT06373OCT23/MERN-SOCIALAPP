@@ -8,9 +8,11 @@ const postSchema = new mongoose.Schema(
       required: true
     },
 
+    // Changed to NOT required to support text-only posts
+    // This will store either the Image URL or the Video URL
     imageUrl: {
       type: String,
-      required: true
+      default: ""
     },
 
     caption: {
@@ -18,6 +20,30 @@ const postSchema = new mongoose.Schema(
       trim: true,
       maxlength: 2200,
       default: ""
+    },
+
+    // ✅ NEW: Identify if it's "image", "video", or "text"
+    mediaType: {
+      type: String,
+      enum: ["image", "video", "text"],
+      default: "image"
+    },
+
+    // ✅ NEW: Video/Image Edit Metadata
+    rotation: {
+      type: Number,
+      default: 0
+    },
+
+    isMuted: {
+      type: Boolean,
+      default: false
+    },
+
+    // Stores start and end time for video trimming: { start: 0, end: 10 }
+    trimRange: {
+      type: Object,
+      default: null
     },
 
     // ✅ Hashtags (non-breaking)
@@ -47,7 +73,13 @@ const postSchema = new mongoose.Schema(
         type: mongoose.Schema.Types.ObjectId,
         ref: "Comment"
       }
-    ]
+    ],
+
+    // ✅ NEW: Comments Blocked Setting
+    commentsBlocked: {
+      type: Boolean,
+      default: false
+    }
   },
   { timestamps: true }
 );

@@ -6,7 +6,7 @@ import cloudinary from "../utils/cloudinary.js";
 import fs from "fs";
 import { getIO } from "../socket/index.js";
 import { getUserSockets } from "../socket/socketStore.js";
-
+import bcrypt from "bcryptjs"; // Essential for password check
 const DEFAULT_AVATAR =
   "https://res.cloudinary.com/demo/image/upload/v1690000000/default-avatar.png";
 
@@ -58,8 +58,9 @@ export const getProfile = async (req, res) => {
       name: user.name,
       avatar: user.avatar,
       bio: user.bio,
+     links: user.links || [], // ✅ ADD THIS LINE  isPrivate: user.isPrivate,
       isPrivate: user.isPrivate,
-      isLocked,
+     isLocked,
       isFollowing: !!isFollower,
       hasRequestedFollow,
       followersCount: isLocked ? null : user.followers.length,
@@ -384,9 +385,36 @@ export const unblockUser = async (req, res) => {
     res.status(500).json({ message: e.message });
   }
 };
+/* ===============================
+   UPDATE INTERACTION SETTINGS (NEW)
+   =============================== */
+export const updateSettings = async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // We only update the fields provided in the request body
+    if (req.body.allowMentionsFrom !== undefined) {
+      user.settings.allowMentionsFrom = req.body.allowMentionsFrom;
+    }
+    
+    if (req.body.muteNotifications !== undefined) {
+      user.settings.muteNotifications = !!req.body.muteNotifications;
+    }
+
+    await user.save();
+
+    res.json({
+      message: "Settings updated successfully",
+      settings: user.settings
+    });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+};
 
 /* ===============================
-   UPDATE PROFILE
+   UPDATE PROFILE (MODIFIED)
    =============================== */
 export const updateProfile = async (req, res) => {
   try {
@@ -395,7 +423,13 @@ export const updateProfile = async (req, res) => {
 
     if (req.body.name !== undefined) user.name = req.body.name;
     if (req.body.bio !== undefined) user.bio = req.body.bio;
-
+// ✅ Handle Multiple Links
+    // Expecting req.body.links to be a JSON string or Array
+    if (req.body.links !== undefined) {
+      user.links = typeof req.body.links === 'string' 
+        ? JSON.parse(req.body.links) 
+        : req.body.links;
+    }
     if (req.body.avatar === "REMOVE") {
       user.avatar = DEFAULT_AVATAR;
     }
@@ -414,12 +448,12 @@ export const updateProfile = async (req, res) => {
     delete safeUser.password;
     delete safeUser.schoolName;
 
+    // Ensure settings are included in the response for the frontend state
     res.json(safeUser);
   } catch (e) {
     res.status(500).json({ message: e.message });
   }
 };
-
 /* ===============================
    UPDATE ACCOUNT PRIVACY
    =============================== */
@@ -482,23 +516,28 @@ export const removeFollower = async (req, res) => {
    =============================== */
 export const deleteAccount = async (req, res) => {
   try {
-    const { schoolName } = req.body;
+    const { identifier, password } = req.body;
 
+    // 1. Find the user
     const user = await User.findById(req.userId);
-    if (!user || user.schoolName !== schoolName) {
-      return res.status(401).json({ message: "Security answer incorrect" });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 2. Validate Password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      // This message will show up in your toast.error
+      return res.status(400).json({ message: "Incorrect password" });
     }
 
+    // 3. Delete Data
     await Post.deleteMany({ user: user._id });
     await user.deleteOne();
 
-    res.clearCookie("refreshToken");
-    res.json({ message: "Account deleted successfully" });
+    res.json({ message: "Deleted successfully" });
   } catch (e) {
-    res.status(500).json({ message: e.message });
+    res.status(500).json({ message: "Server error" });
   }
-};
-/* ===============================
+};/* ===============================
    SEARCH USERS (USERNAME)
    =============================== */
 export const searchUsers = async (req, res) => {
@@ -523,5 +562,56 @@ export const searchUsers = async (req, res) => {
     res.json(users);
   } catch (e) {
     res.status(500).json({ message: e.message });
+  }
+};
+//search 
+/* ===============================
+   GET SUGGESTIONS (SMART DISCOVERY)
+   =============================== */
+export const getSuggestions = async (req, res) => {
+  try {
+    const me = await User.findById(req.userId);
+    if (!me) return res.status(404).json({ message: "User not found" });
+
+    const following = me.following || [];
+    const blocked = me.blockedUsers || [];
+    
+    // We want to exclude myself, people I already follow, and blocked users
+    const excludeIds = [req.userId, ...following, ...blocked];
+
+    /**
+     * DATABASE QUERY
+     * 1. Not in exclude list
+     * 2. Only public accounts (better for quick engagement)
+     */
+    let suggestions = await User.find({
+      _id: { $nin: excludeIds },
+      isPrivate: false // SaaS best practice: suggest public accounts for instant feed growth
+    })
+      .select("username avatar followers")
+      .limit(15); // Fetch slightly more to sort them better
+
+    // If we have very few public users, fallback to any users (except excluded)
+    if (suggestions.length < 5) {
+      const extraSuggestions = await User.find({
+        _id: { $nin: excludeIds }
+      })
+        .select("username avatar followers")
+        .limit(10);
+      
+      // Merge and remove duplicates
+      suggestions = [...new Map([...suggestions, ...extraSuggestions].map(u => [u.id, u])).values()];
+    }
+
+    // 🔥 SMART SORT: Sort by popularity (follower count) 
+    // AND randomize a little so the feed feels "alive"
+    const finalSuggestions = suggestions
+      .sort((a, b) => (b.followers?.length || 0) - (a.followers?.length || 0))
+      .slice(0, 10); // Return top 10 after sorting
+
+    res.json(finalSuggestions);
+  } catch (err) {
+    console.error("Suggestions Error:", err);
+    res.status(500).json({ message: "Error fetching suggestions" });
   }
 };

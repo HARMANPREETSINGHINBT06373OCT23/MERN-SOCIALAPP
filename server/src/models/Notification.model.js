@@ -30,15 +30,23 @@ const notificationSchema = new mongoose.Schema(
         "follow_rejected",
         "like",
         "comment",
-        "reply",     // ✅ NEW
-        "mention"    // ✅ NEW
+        "reply",
+        "mention"
       ],
       required: true
     },
 
+    // ✅ POST THIS NOTIFICATION BELONGS TO
     post: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Post",
+      default: null
+    },
+
+    // ✅ COMMENT (for reply / mention scroll + highlight)
+    comment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Comment",
       default: null
     },
 

@@ -9,6 +9,8 @@ export const getMyNotifications = async (req, res) => {
       recipient: req.userId
     })
       .populate("sender", "username avatar")
+      .populate("post", "_id")        // ✅ REQUIRED
+      .populate("comment", "_id parent") // ✅ REQUIRED
       .sort({ createdAt: -1 });
 
     res.json(notifications);
@@ -29,7 +31,10 @@ export const markNotificationAsRead = async (req, res) => {
       },
       { isRead: true },
       { new: true }
-    );
+    )
+      .populate("sender", "username avatar")
+      .populate("post", "_id")
+      .populate("comment", "_id parent");
 
     if (!notification) {
       return res.status(404).json({ message: "Notification not found" });

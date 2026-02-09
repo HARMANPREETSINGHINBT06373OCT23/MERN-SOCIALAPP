@@ -33,5 +33,6 @@ const commentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-
+// This makes counting by post and parent status much faster
+commentSchema.index({ post: 1, parent: 1 });
 export default mongoose.model("Comment", commentSchema);

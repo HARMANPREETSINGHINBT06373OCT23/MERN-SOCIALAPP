@@ -6,10 +6,12 @@ import {
   getFeed,
   getUserPosts,
   searchHashtags,
-  likePost,      // existing
-  toggleLike,    // ✅ NEW
+  searchGlobal, // ✅ NEW: Added this import
+  likePost,      
+  toggleLike,    
   savePost,
-  deletePost
+  deletePost,
+  toggleCommentBlock 
 } from "../controllers/post.controller.js";
 
 import { protect } from "../middlewares/auth.middleware.js";
@@ -25,6 +27,7 @@ const upload = multer({ dest: "uploads/" });
    SEARCH (MOST SPECIFIC)
    =============================== */
 router.get("/search/hashtags", protect, searchHashtags);
+router.get("/search/global", protect, searchGlobal); // ✅ NEW: Added this route here
 
 /* ===============================
    FEED
@@ -50,6 +53,9 @@ router.post("/like/:id", protect, likePost);
 
 /* ✅ NEW REST-STYLE TOGGLE LIKE ROUTE */
 router.post("/:id/like", protect, toggleLike);
+
+/* ✅ TOGGLE COMMENTS ON/OFF */
+router.patch("/:postId/comments-toggle", protect, toggleCommentBlock);
 
 router.post("/save/:id", protect, savePost);
 router.delete("/:id", protect, deletePost);

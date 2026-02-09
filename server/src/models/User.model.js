@@ -47,11 +47,29 @@ const userSchema = new mongoose.Schema(
       maxlength: 150,
       default: "Welcome to my profile 👋"
     },
-
-    // 🔒 private account toggle
+// Replace the old website line with this in User.model.js
+links: [
+  {
+    title: { type: String, trim: true },
+    url: { type: String, trim: true }
+  }
+],    // 🔒 private account toggle
     isPrivate: {
       type: Boolean,
       default: false
+    },
+
+    // ⚙️ INTERACTION & NOTIFICATION SETTINGS
+    settings: {
+      allowMentionsFrom: {
+        type: String,
+        enum: ["everyone", "following", "none"],
+        default: "everyone"
+      },
+      muteNotifications: {
+        type: Boolean,
+        default: false
+      }
     },
 
     // 🚫 blocked users list

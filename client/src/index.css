@@ -10,3 +10,15 @@ body { @apply bg-neutral-50 text-neutral-900; }
 .label { @apply text-sm font-medium; }
 .req::after { content: " *"; color: #ef4444; }
 .error { @apply text-sm text-red-500; }
+@keyframes commentGlow {
+  0% {
+    background-color: rgba(255, 235, 59, 0.4);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.comment-glow {
+  animation: commentGlow 2.5s ease-out;
+}

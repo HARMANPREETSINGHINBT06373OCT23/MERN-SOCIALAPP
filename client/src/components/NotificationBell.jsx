@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux"; // Added to check guest status
 import api from "../services/api";
 import socket from "../services/socket";
 import { Bell, X } from "lucide-react";
 import toast from "react-hot-toast";
 
+/* ---------------- TIME AGO ---------------- */
 const timeAgo = date => {
   const sec = Math.floor((Date.now() - new Date(date)) / 1000);
   if (sec < 60) return `${sec}s`;
@@ -18,21 +20,29 @@ const timeAgo = date => {
 };
 
 export default function NotificationBell() {
+  const { isGuest } = useSelector((state) => state.auth); // Access guest status
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const audioRef = useRef(null);
   const audioUnlocked = useRef(false);
   const navigate = useNavigate();
 
-  /* -------- LOAD -------- */
+  /* ---------------- LOAD ---------------- */
   useEffect(() => {
-    api.get("/notifications")
+    // 🛑 GUEST CHECK: Stop API call if Guest
+    if (isGuest) return;
+
+    api
+      .get("/notifications")
       .then(res => setNotifications(res.data))
       .catch(() => toast.error("Failed to load notifications"));
-  }, []);
+  }, [isGuest]); // Added isGuest to dependency
 
-  /* -------- REALTIME -------- */
+  /* ---------------- REALTIME ---------------- */
   useEffect(() => {
+    // 🛑 GUEST CHECK: Don't listen for sockets if Guest
+    if (isGuest) return;
+
     const handler = notification => {
       setNotifications(prev => [notification, ...prev]);
 
@@ -44,12 +54,18 @@ export default function NotificationBell() {
 
     socket.on("notification:new", handler);
     return () => socket.off("notification:new", handler);
-  }, []);
+  }, [isGuest]); // Added isGuest to dependency
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  /* -------- BELL CLICK -------- */
+  /* ---------------- BELL CLICK ---------------- */
   const handleBellClick = async () => {
+    // If guest, just toggle the empty menu or show a message
+    if (isGuest) {
+      setOpen(o => !o);
+      return;
+    }
+
     if (!audioUnlocked.current && audioRef.current) {
       try {
         await audioRef.current.play();
@@ -63,22 +79,70 @@ export default function NotificationBell() {
         .filter(n => !n.isRead)
         .map(n => n._id);
 
-      await Promise.all(
-        unreadIds.map(id =>
-          api.patch(`/notifications/${id}/read`).catch(() => {})
-        )
-      );
+      if (unreadIds.length > 0) {
+        await Promise.all(
+          unreadIds.map(id =>
+            api.patch(`/notifications/${id}/read`).catch(() => {})
+          )
+        );
 
-      setNotifications(prev =>
-        prev.map(n => ({ ...n, isRead: true }))
-      );
+        setNotifications(prev =>
+          prev.map(n => ({ ...n, isRead: true }))
+        );
+      }
     }
 
     setOpen(o => !o);
   };
 
-  /* -------- DELETE -------- */
+  /* ---------------- NAVIGATION (FINAL FIX) ---------------- */
+  const handleNotificationClick = n => {
+    setOpen(false);
+
+    // FOLLOW → PROFILE
+    if (n.type.startsWith("follow")) {
+      navigate(`/profile/${n.sender.username}`);
+      return;
+    }
+
+    // ✅ ALWAYS extract STRING IDs
+    const postId =
+      typeof n.post === "string"
+        ? n.post
+        : n.post?._id;
+
+    const commentId =
+      typeof n.comment === "string"
+        ? n.comment
+        : n.comment?._id;
+
+    // LIKE → ONLY SCROLL TO POST (NO COMMENT PANEL)
+    if (n.type === "like") {
+      if (postId) {
+        navigate(`/?post=${postId}`);
+      }
+      return;
+    }
+
+    // COMMENT / REPLY / MENTION → OPEN COMMENTS
+    if (["comment", "reply", "mention"].includes(n.type)) {
+      if (!postId) return;
+
+      const params = new URLSearchParams();
+      params.set("post", postId);
+
+      if (commentId) {
+        params.set("comment", commentId);
+      }
+
+      navigate(`/?${params.toString()}`);
+    }
+  };
+
+  /* ---------------- DELETE ---------------- */
   const deleteNotification = id => {
+    if (isGuest) return; // Prevent actions for guests
+
     toast(t => (
       <div className="flex gap-3 items-center">
         <span className="text-sm">Delete notification?</span>
@@ -97,65 +161,46 @@ export default function NotificationBell() {
     ));
   };
 
-  /* -------- FOLLOW REQUEST -------- */
+  /* ---------------- FOLLOW REQUEST ---------------- */
   const acceptRequest = async n => {
-    if (!n?.sender?._id) {
-      toast.error("Invalid follow request");
-      return;
-    }
-
+    if (isGuest) return;
     await api.post(`/follow-requests/${n.sender._id}/accept`);
-
-    // 🔥 CHANGE notification instead of removing
     setNotifications(prev =>
       prev.map(x =>
-        x._id === n._id
-          ? { ...x, type: "follow" }
-          : x
+        x._id === n._id ? { ...x, type: "follow" } : x
       )
     );
-
     toast.success("Follow request accepted");
   };
 
   const rejectRequest = async n => {
-    if (!n?.sender?._id) {
-      toast.error("Invalid follow request");
-      return;
-    }
-
+    if (isGuest) return;
     await api.delete(`/follow-requests/${n.sender._id}/reject`);
-
-    // ❌ REMOVE instantly
-    setNotifications(prev =>
-      prev.filter(x => x._id !== n._id)
-    );
-
+    setNotifications(prev => prev.filter(x => x._id !== n._id));
     toast("Follow request rejected");
   };
 
-  /* -------- TEXT -------- */
+  /* ---------------- TEXT ---------------- */
   const getText = n => {
-  switch (n.type) {
-    case "follow_request":
-      return "sent you a follow request";
-
-    case "follow":
-      return "has started following you";
-
-    case "follow_accepted":
-      return "accepted your follow request";
-
-    case "like":
-      return "liked your post";
-
-    case "comment":
-      return "commented on your post";
-
-    default:
-      return "sent you a notification";
-  }
-};
+    switch (n.type) {
+      case "follow_request":
+        return "sent you a follow request";
+      case "follow":
+        return "has started following you";
+      case "follow_accepted":
+        return "accepted your follow request";
+      case "like":
+        return "liked your post";
+      case "comment":
+        return "commented on your post";
+      case "reply":
+        return "replied to your comment";
+      case "mention":
+        return "mentioned you ";
+      default:
+        return "sent you a notification";
+    }
+  };
 
   return (
     <div className="fixed top-4 right-4 z-[9999]">
@@ -182,62 +227,73 @@ export default function NotificationBell() {
             </button>
           </div>
 
-          {notifications.length === 0 && (
-            <div className="p-4 text-sm text-neutral-500 text-center">
-              No notifications
-            </div>
-          )}
-
           <div className="max-h-[70vh] overflow-y-auto">
-            {notifications.map(n => (
-              <div key={n._id} className="flex gap-3 p-3 border-b">
-                <img
-                  src={n.sender?.avatar}
-                  className="w-8 h-8 rounded-full object-cover"
-                />
+            {isGuest ? (
+              <div className="p-8 text-center">
+                <p className="text-sm text-neutral-500 italic">Login to see real notifications</p>
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="p-8 text-center text-sm text-neutral-400">
+                No notifications yet
+              </div>
+            ) : (
+              notifications.map(n => (
+                <div
+                  key={n._id}
+                  onClick={() => handleNotificationClick(n)}
+                  className="flex gap-3 p-3 border-b cursor-pointer hover:bg-neutral-100"
+                >
+                  <img
+                    src={n.sender?.avatar || `https://ui-avatars.com/api/?name=${n.sender?.username}`}
+                    className="w-8 h-8 rounded-full object-cover"
+                  />
 
-                <div className="flex-1 text-sm">
-                  <span
-                    onClick={() => {
-                      navigate(`/profile/${n.sender?.username}`);
-                      setOpen(false);
-                    }}
-                    className="font-semibold hover:underline cursor-pointer"
-                  >
-                    {n.sender?.username}
-                  </span>{" "}
-                  {getText(n)}
+                  <div className="flex-1 text-sm">
+                    <span className="font-semibold">
+                      {n.sender?.username}
+                    </span>{" "}
+                    {getText(n)}
 
-                  <div className="text-xs text-neutral-400 mt-1">
-                    {timeAgo(n.createdAt)} ago
+                    <div className="text-xs text-neutral-400 mt-1">
+                      {timeAgo(n.createdAt)} ago
+                    </div>
+
+                    {n.type === "follow_request" && (
+                      <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            acceptRequest(n);
+                          }}
+                          className="text-xs bg-black text-white px-2 py-1 rounded"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            rejectRequest(n);
+                          }}
+                          className="text-xs border px-2 py-1 rounded"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {n.type === "follow_request" && (
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={() => acceptRequest(n)}
-                        className="text-xs bg-black text-white px-2 py-1 rounded"
-                      >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => rejectRequest(n)}
-                        className="text-xs border px-2 py-1 rounded"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  )}
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      deleteNotification(n._id);
+                    }}
+                    className="text-neutral-400 hover:text-red-600"
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
-
-                <button
-                  onClick={() => deleteNotification(n._id)}
-                  className="text-neutral-400 hover:text-red-600"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
